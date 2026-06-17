@@ -1,0 +1,22 @@
+{
+  "name": "pixel-recorder",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^1.5.3"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^3.0.2",
+    "@tauri-apps/cli": "^1.5.11",
+    "svelte": "^4.2.12",
+    "svelte-router-spa": "^7.0.1",
+    "vite": "^5.2.8"
+  }
+}

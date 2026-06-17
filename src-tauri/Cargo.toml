@@ -1,0 +1,37 @@
+[package]
+name = "pixel-recorder"
+version = "0.1.0"
+description = "Pixel Recorder - Screen Recorder with Frame Diff Storage"
+authors = ["you"]
+license = ""
+repository = ""
+edition = "2021"
+rust-version = "1.70"
+
+[lib]
+name = "pixel_recorder_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "1.5", features = [] }
+
+[dependencies]
+tauri = { version = "1.6", features = ["api-all"] }
+image = { version = "0.24", default-features = false, features = ["png", "imageops"] }
+xcap = "0.0.10"
+rusqlite = { version = "0.31", features = ["bundled", "chrono", "serde_json"] }
+zstd = "0.13"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+base64 = "0.22"
+anyhow = "1"
+thiserror = "1"
+dirs = "5"
+opencv = { version = "0.93", default-features = false, features = ["imgproc", "video", "highgui"] }
+windows = { version = "0.54", features = ["Win32_System_Power", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_UI_HiDpi", "Win32_System_LibraryLoader"] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

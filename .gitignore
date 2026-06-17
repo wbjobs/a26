@@ -32,3 +32,22 @@ __pycache__/
 # Env
 .env
 .env.local
+
+# Rust
+src-tauri/target/
+**/*.rs.bk
+Cargo.lock
+
+# Tauri
+src-tauri/gen/
+src-tauri/target/
+src-tauri/icons/*.ico
+src-tauri/icons/*.icns
+src-tauri/icons/*.png
+!src-tauri/icons/icon.png
+
+# Database
+*.db
+*.db-wal
+*.db-shm
+recordings.db*
