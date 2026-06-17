@@ -1,21 +1,30 @@
 pub mod capture;
+pub mod clip_search;
+pub mod collab;
 pub mod compressor;
 pub mod commands;
 pub mod diff;
 pub mod power_monitor;
 pub mod recorder;
 pub mod storage;
+pub mod webm_export;
 
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::Manager;
 
+use clip_search::ClipSearch;
+use collab::CollabEngine;
 use recorder::Recorder;
 use storage::Database;
+use webm_export::WebMExporter;
 
 pub struct AppState {
     pub recorder: Mutex<Option<Recorder>>,
     pub db: Mutex<Option<Database>>,
+    pub collab: Mutex<Option<CollabEngine>>,
+    pub clip: Mutex<Option<ClipSearch>>,
+    pub exporter: Mutex<Option<WebMExporter>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,6 +143,9 @@ pub fn run() {
         .manage(AppState {
             recorder: Mutex::new(None),
             db: Mutex::new(None),
+            collab: Mutex::new(Some(CollabEngine::new())),
+            clip: Mutex::new(Some(ClipSearch::new())),
+            exporter: Mutex::new(Some(WebMExporter::new())),
         })
         .setup(move |app| {
             let state = app.state::<AppState>();
@@ -155,6 +167,16 @@ pub fn run() {
             commands::delete_recording,
             commands::search_recordings,
             commands::get_recording_status,
+            commands::create_collab_room,
+            commands::join_collab_room,
+            commands::leave_collab_room,
+            commands::get_collab_room,
+            commands::send_collab_event,
+            commands::clip_index,
+            commands::clip_is_indexed,
+            commands::clip_search,
+            commands::export_webm,
+            commands::export_progress,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

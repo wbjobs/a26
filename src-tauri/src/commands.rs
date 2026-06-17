@@ -1,8 +1,12 @@
 use anyhow::Result;
+use std::path::PathBuf;
 use tauri::{command, State};
 
+use crate::clip_search::{ClipSearch, SearchMatch};
+use crate::collab::{CollabEngine, CollabEvent, RoomInfo};
 use crate::recorder::Recorder;
 use crate::storage::Database;
+use crate::webm_export::{ExportProgress, WebMExporter};
 use crate::{AnnotationLayer, AppState, FrameInfo, Recording, RecordingStatus};
 
 #[derive(serde::Serialize)]
@@ -256,4 +260,228 @@ pub fn get_recording_status(state: State<'_, AppState>) -> CommandResult<Recordi
         frame_count,
         auto_paused_reason,
     })
+}
+
+#[command]
+pub fn create_collab_room(
+    state: State<'_, AppState>,
+    recording_id: String,
+    user_name: Option<String>,
+) -> CommandResult<String> {
+    let guard = match state.collab.lock() {
+        Ok(g) => g,
+        Err(e) => return CommandResult::err(format!("Collab lock poisoned: {}", e)),
+    };
+    let collab = match guard.as_ref() {
+        Some(c) => c,
+        None => return CommandResult::err("Collab engine not initialized"),
+    };
+    if let Some(name) = user_name {
+        let mut c = collab.clone();
+        c.set_local_name(&name);
+    }
+    match collab.create_room(&recording_id) {
+        Ok(code) => CommandResult::ok(code),
+        Err(e) => CommandResult::err(format!("{}", e)),
+    }
+}
+
+#[command]
+pub fn join_collab_room(
+    state: State<'_, AppState>,
+    room_code: String,
+    user_name: Option<String>,
+) -> CommandResult<RoomInfo> {
+    let guard = match state.collab.lock() {
+        Ok(g) => g,
+        Err(e) => return CommandResult::err(format!("Collab lock poisoned: {}", e)),
+    };
+    let collab = match guard.as_ref() {
+        Some(c) => c,
+        None => return CommandResult::err("Collab engine not initialized"),
+    };
+    if let Some(name) = user_name {
+        let mut c = collab.clone();
+        c.set_local_name(&name);
+    }
+    match collab.join_room(&room_code) {
+        Ok(info) => CommandResult::ok(info),
+        Err(e) => CommandResult::err(format!("{}", e)),
+    }
+}
+
+#[command]
+pub fn leave_collab_room(
+    state: State<'_, AppState>,
+    room_code: String,
+) -> CommandResult<String> {
+    let guard = match state.collab.lock() {
+        Ok(g) => g,
+        Err(e) => return CommandResult::err(format!("Collab lock poisoned: {}", e)),
+    };
+    let collab = match guard.as_ref() {
+        Some(c) => c,
+        None => return CommandResult::err("Collab engine not initialized"),
+    };
+    match collab.leave_room(&room_code) {
+        Ok(()) => CommandResult::ok("left".to_string()),
+        Err(e) => CommandResult::err(format!("{}", e)),
+    }
+}
+
+#[command]
+pub fn get_collab_room(
+    state: State<'_, AppState>,
+    room_code: String,
+) -> CommandResult<Option<RoomInfo>> {
+    let guard = match state.collab.lock() {
+        Ok(g) => g,
+        Err(e) => return CommandResult::err(format!("Collab lock poisoned: {}", e)),
+    };
+    let collab = match guard.as_ref() {
+        Some(c) => c,
+        None => return CommandResult::err("Collab engine not initialized"),
+    };
+    CommandResult::ok(collab.get_room_info(&room_code))
+}
+
+#[command]
+pub fn send_collab_event(
+    state: State<'_, AppState>,
+    room_code: String,
+    event: CollabEvent,
+) -> CommandResult<String> {
+    let guard = match state.collab.lock() {
+        Ok(g) => g,
+        Err(e) => return CommandResult::err(format!("Collab lock poisoned: {}", e)),
+    };
+    let collab = match guard.as_ref() {
+        Some(c) => c,
+        None => return CommandResult::err("Collab engine not initialized"),
+    };
+    match collab.send_event(&room_code, event) {
+        Ok(()) => CommandResult::ok("sent".to_string()),
+        Err(e) => CommandResult::err(format!("{}", e)),
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct ClipIndexFrame {
+    timestamp_ms: u64,
+    rgba_base64: String,
+    width: u32,
+    height: u32,
+}
+
+#[command]
+pub fn clip_index(
+    state: State<'_, AppState>,
+    recording_id: String,
+    frames: Vec<ClipIndexFrame>,
+) -> CommandResult<usize> {
+    use base64::prelude::*;
+
+    let guard = match state.clip.lock() {
+        Ok(g) => g,
+        Err(e) => return CommandResult::err(format!("Clip lock poisoned: {}", e)),
+    };
+    let clip = match guard.as_ref() {
+        Some(c) => c,
+        None => return CommandResult::err("Clip search engine not initialized"),
+    };
+
+    let mut decoded = Vec::with_capacity(frames.len());
+    for f in frames {
+        match BASE64_STANDARD.decode(&f.rgba_base64) {
+            Ok(rgba) => decoded.push((f.timestamp_ms, rgba, f.width, f.height)),
+            Err(e) => eprintln!("Skip bad frame {}: {}", f.timestamp_ms, e),
+        }
+    }
+
+    match clip.index_frames(&recording_id, &decoded) {
+        Ok(n) => CommandResult::ok(n),
+        Err(e) => CommandResult::err(format!("{}", e)),
+    }
+}
+
+#[command]
+pub fn clip_is_indexed(
+    state: State<'_, AppState>,
+    recording_id: String,
+) -> CommandResult<bool> {
+    let guard = match state.clip.lock() {
+        Ok(g) => g,
+        Err(e) => return CommandResult::err(format!("Clip lock poisoned: {}", e)),
+    };
+    let clip = match guard.as_ref() {
+        Some(c) => c,
+        None => return CommandResult::err("Clip search engine not initialized"),
+    };
+    CommandResult::ok(clip.is_indexed(&recording_id))
+}
+
+#[command]
+pub fn clip_search(
+    state: State<'_, AppState>,
+    recording_id: String,
+    query: String,
+    top_k: Option<usize>,
+) -> CommandResult<Vec<SearchMatch>> {
+    let guard = match state.clip.lock() {
+        Ok(g) => g,
+        Err(e) => return CommandResult::err(format!("Clip lock poisoned: {}", e)),
+    };
+    let clip = match guard.as_ref() {
+        Some(c) => c,
+        None => return CommandResult::err("Clip search engine not initialized"),
+    };
+    match clip.search(&recording_id, &query, top_k.unwrap_or(10)) {
+        Ok(results) => CommandResult::ok(results),
+        Err(e) => CommandResult::err(format!("{}", e)),
+    }
+}
+
+#[command]
+pub fn export_webm(
+    state: State<'_, AppState>,
+    recording_id: String,
+    output_path: String,
+) -> CommandResult<(u32, u64)> {
+    let db_clone = {
+        let guard = match state.db.lock() {
+            Ok(g) => g,
+            Err(e) => return CommandResult::err(format!("DB lock poisoned: {}", e)),
+        };
+        match guard.as_ref() {
+            Some(db) => db.clone(),
+            None => return CommandResult::err("Database not initialized"),
+        }
+    };
+    let exporter_clone = {
+        let guard = match state.exporter.lock() {
+            Ok(g) => g,
+            Err(e) => return CommandResult::err(format!("Exporter lock poisoned: {}", e)),
+        };
+        match guard.as_ref() {
+            Some(e) => e.clone(),
+            None => return CommandResult::err("Exporter not initialized"),
+        }
+    };
+    match exporter_clone.export(&db_clone, &recording_id, PathBuf::from(output_path)) {
+        Ok((frames, bytes)) => CommandResult::ok((frames, bytes)),
+        Err(e) => CommandResult::err(format!("{}", e)),
+    }
+}
+
+#[command]
+pub fn export_progress(state: State<'_, AppState>) -> CommandResult<Option<ExportProgress>> {
+    let guard = match state.exporter.lock() {
+        Ok(g) => g,
+        Err(e) => return CommandResult::err(format!("Exporter lock poisoned: {}", e)),
+    };
+    let exporter = match guard.as_ref() {
+        Some(e) => e,
+        None => return CommandResult::err("Exporter not initialized"),
+    };
+    CommandResult::ok(exporter.get_progress())
 }
